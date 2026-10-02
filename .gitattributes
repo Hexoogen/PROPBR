@@ -1,0 +1,4 @@
+# Preserve exact bytes of scientific assets across platforms.
+src/propbr/assets/*.npy -text
+src/propbr/assets/*.pt -text
+src/propbr/assets/prospect_d_spectra.txt -text
