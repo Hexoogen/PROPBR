@@ -1,0 +1,10 @@
+cff-version: 1.2.0
+message: "Please cite this software and the related manuscript when using PROPBR."
+type: software
+title: "PROPBR and sPROPBR differentiable leaf reflectance models"
+authors:
+  - family-names: Liu
+    given-names: Yanfu
+version: 0.1.0
+date-released: 2026-10-01
+license: GPL-3.0-only
