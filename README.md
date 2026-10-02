@@ -95,8 +95,8 @@ sbrf = smodel.simulate(q)                   # (leaves, 1, wavelengths)
 | Cw | Equivalent water thickness (EWT) | cm | 0–0.06 |
 | Cm | Leaf mass per area (LMA) | g cm⁻² | 0–0.05 |
 | Cbrown | Brown pigment parameter | dimensionless | 0–1 |
-| sigma | PROPBR surface roughness | dimensionless | 0.01–1 |
-| mu | sPROPBR effective surface reflection coefficient | dimensionless | 0–30 |
+| σ | PROPBR surface roughness | dimensionless | 0.01–1 |
+| μ | sPROPBR effective surface reflection coefficient | dimensionless | 0–30 |
 
 Cw in cm equals water mass per area in g cm⁻² when water density is 1 g cm⁻³; multiplying Cw or Cm by 1,000 gives mg cm⁻². The paper's sPROPBR EFAST range is **mu=0–2.5**, distinct from its inversion range of 0–30.
 
