@@ -1,0 +1,22 @@
+{
+  "description": "Numerical model constants and a frozen surrogate, not measured leaf datasets.",
+  "files": {
+    "prospect_d_spectra.txt": {
+      "sha256": "e703b345f0a0860808e230ca0869f5b108ca1115ab9950c9651a29fee72c474d",
+      "bytes": 209107,
+      "origin": "PROSAIL 2.0.5 PROSPECT-D numerical spectral coefficients (GPLv3)."
+    },
+    "surface_nr.npy": {
+      "sha256": "6a996881b5cc1f8e3b1fc47cf4aece1d3ec63b3871f4a0720544ace2fe7148c3",
+      "bytes": 16936,
+      "origin": "Author-supplied DLM 2.1 refractive-index spectrum; original filename DLM_nr.npy; 400\u20132500 nm."
+    },
+    "ks_kan.pt": {
+      "sha256": "02ebb05535c78efdc290c11010ea286a6108b7b4cfef77d907b39655817c7422",
+      "bytes": 5069,
+      "origin": "Author-supplied ks_kan_weights1.pt; tensor/scaler-preserving sanitized checkpoint."
+    }
+  },
+  "upstream_weight_sha256": "3c7c788a3c423663cad1499500838f1a62173413f3b6fe40bb8be5c1d50fcb8b",
+  "weight_note": "Same trained tensors and scalers; historic metric metadata removed. No retraining."
+}
