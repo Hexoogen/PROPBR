@@ -1,5 +1,7 @@
 name: Numerical tests
 on: [push, pull_request]
+permissions:
+  contents: read
 jobs:
   tests:
     strategy:
@@ -13,5 +15,12 @@ jobs:
         with:
           python-version: ${{ matrix.python }}
       - run: python -m pip install --upgrade pip
-      - run: python -m pip install -e ".[full,dev]"
-      - run: python -m pytest -q
+      - run: python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+      - run: python -m pip install -r requirements.txt
+      - run: python verify_fixes.py --device cpu --json outputs/verification.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: verification-${{ matrix.os }}-py${{ matrix.python }}
+          path: outputs/verification.json
+          if-no-files-found: ignore

@@ -1,13 +1,42 @@
+# ---- Python / 编辑器 ----
 __pycache__/
 *.py[cod]
-.pytest_cache/
-*.egg-info/
+.idea/
+.vscode/
+.ipynb_checkpoints/
+
+# ---- 本地环境 / 密钥 ----
+.env
+*.key
+
+# ---- 数据与中间产物（不随仓库发布）----
+# 光谱数据、反演结果、图片输出一律不入库；
+# 例外：lut/ 下的模型权重与查找表必须提交。
+data/
+spec/
+plot/
+sim/
+results/
+*.npy
+*.npz
+*.mat
+*.h5
+*.hdf5
+*.tif
+*.tiff
+!lut/*.npy
+
+# ---- 论文与草稿（走投稿系统 / 云盘）----
+*.docx
+*.pdf
+*.ppt*
+*.xlsx
+*.log
+
+# Environment caches and generated verification output
 .venv/
+.pytest_cache/
+outputs/
 build/
 dist/
-outputs/
-data/
-datasets/
-.env
-.idea/
-.DS_Store
+*.egg-info/

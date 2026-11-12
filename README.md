@@ -1,166 +1,199 @@
-# PROPBR and sPROPBR
+# PROPBR
 
-Differentiable leaf bidirectional reflectance models in PyTorch. This repository connects forward simulation, bounded inversion and sensitivity analysis through the same model implementation.
+**方向反射与漫反射物理一致的可微分辐射传输模型（叶片 BRF 前向模拟与生化参数反演）**
 
-**No measured datasets are included.** The demonstration generates synthetic spectra at runtime. The small bundled assets are PROSPECT-D numerical optical coefficients, the author's DLM 2.1 surface refractive-index spectrum, and the frozen Ks KAN weights required by the model.
+PROPBR 将计算机图形学的物理渲染框架（PBR，Smith–GGX 微面模型）与经典叶片辐射传输模型
+PROSPECT-D 耦合，构建物理一致、全可微的叶片双向反射因子（BRF）模型：
 
-中文说明见 [README_zh.md](README_zh.md)。Equation mappings and differences from historical experiment scripts are recorded in [docs/model_and_reproducibility.md](docs/model_and_reproducibility.md).
+- **PROPBR**：显式耦合「表面镜面反射 + 内部漫反射」。镜面反射核 `K_s` 用预计算 2D-LUT
+  经 KAN 网络算子化为处处可微的代理；基于 PyTorch 自动微分实现 GPU 批量反演。
+- **sPROPBR**：PROPBR 的简化版，用一个等效表面反射系数 μ 代替几何项，适用于缺少完整
+  观测几何的近端高光谱影像（像素级叶绿素制图）。
 
-## Install
+本仓库只包含**前向模拟 BRF** 与**反演参数**所需的最少代码。
 
-Use Python 3.10 or newer in a clean virtual environment:
+---
+
+## 目录结构
+
+```
+.
+├── README.md
+├── environment.yml      # conda 环境
+├── func.py              # PROPBR / sPROPBR 前向、参考镜面扣除、Adam/AdamW 批量反演
+├── prospect.py          # numpy 版 PROSPECT-D / PROSPECT-PRO（func.py 依赖）
+├── prospect_h.py        # 面向 HSI 的 PROSPECT 封装
+├── kan_model.py         # KsKAN：镜面反射核的 KAN 代理（2-4-1, B-spline, grid=10）
+├── trf_solver.py        # torch GPU 批量 Trust-Region（dogleg）求解器（可选反演器）
+├── metric.py            # RMSE / R² 评估
+├── verify_fixes.py      # 回归检查：光学参考 / AD / 边界 / 最优解 / 两种模型反演
+├── prosailt/            # PROSPECT-5/D/PRO 的 PyTorch 实现（kan_torch 的依赖）
+└── lut/                 # 模型权重与预计算查找表
+    ├── ks_kan_weights1.pt   # KsKAN 权重
+    ├── DLM_nr.npy           # 折射率光谱
+    └── Resampler.npy        # 2101 → 196 波段重采样矩阵
+```
+
+数据不随仓库发布，见「数据说明」。
+
+---
+
+## 环境安装
 
 ```bash
-python -m venv .venv
+conda env create -f environment.yml
+conda activate propbr
+
+# GPU用户按PyTorch官方安装页选择本机对应的CUDA构建：
+# https://pytorch.org/get-started/locally/
 ```
 
-Activate it with `.venv\Scripts\activate` on Windows, or `source .venv/bin/activate` on Linux/macOS. Then:
+也可在已有Python环境中安装依赖：
 
 ```bash
-python -m pip install --upgrade pip
-python -m pip install -e ".[full]"
+python -m pip install -r requirements.txt
 ```
 
-This installs EFAST support through SALib. To install only the core model, use `pip install -e .`; add `--skip-global` when running the demo. For NVIDIA GPUs, install a CUDA-enabled PyTorch build following the [official installation instructions](https://pytorch.org/get-started/locally/) before installing this package.
+PyTorch的CPU或CUDA构建可按[官方安装页](https://pytorch.org/get-started/locally/)选择。官方prosail包为可选依赖：`python -m pip install prosail`。
 
-## Run the complete synthetic workflow
+> 设备选择：模块加载时按 `cuda`（可用时）→ `cpu` 的顺序自动决定，可用环境变量
+> `PROPBR_DEVICE=cpu` 强制覆盖；所有前向与反演函数都接受 `device=` 参数，可显式指定。
+> 纯 CPU 环境可直接 `import func` 并使用 `device='cpu'`。
+>
+> 若要用 `torch.func.jacfwd` / `vmap` 直接对前向函数求导（绕过 `invert_mse`），请先调用
+> `func.warmup(device)`：functorch 变换内不允许构建模块（`nn.Module.to` 会就地改写参数）。
+>
+> 装好后运行 `python verify_fixes.py --device all`，检查本机可用的 CPU/GPU。
+> 可分别用 `--device cpu` 或 `--device cuda` 指定设备，也可设置 `PROPBR_DEVICE=cpu`。
+> `func.py` 的模型资源按模块位置定位，导入和自检不要求当前目录为仓库根目录。
+> 光谱库优先取自官方 `prosail` 包；若未安装，`func.py` / `prospect.py` 会自动回退到仓库内的
+> `prosailt` 副本（同一套数组，float32 存储），因此也可以不装 `prosail`。
+> 已在本机验证：Windows + Python 3.10 + torch 2.1.0 (CUDA) + prosail 2.0.5。
 
-```bash
-python run_pipeline.py
-```
+---
 
-Equivalent installed command:
+## 快速开始
 
-```bash
-python -m propbr demo --output outputs/demo --device cpu
-```
+### 1) 前向模拟 BRF
 
-The workflow runs:
+PROPBR 的参数为 `[N, Cab, Car, Anth, Cw, Cm, Cbrown, σ]`，使用经验关系
+`f_s = 0.66·σ^-0.63`；9参数版本在末尾增加自由的 `f_s`。
+sPROPBR 的参数为 `[N, Cab, Car, Anth, Cw, Cm, Cbrown, μ]`，由 μ 表示有效表面反射系数。
+单角度输出为 `(B, 2101)`，对应400–2500 nm、1 nm间隔。
 
-1. Fixed-angle PROPBR simulation and inversion.
-2. Joint PROPBR inversion of three viewing directions sharing one parameter vector per leaf.
-3. sPROPBR simulation and inversion without geometric input.
-4. Physical, range-scaled and sigmoid-latent Jacobians, plus the normalized Jacobian response correlation matrix.
-5. KAN validation against analytical Ks on the training grid and an offset fine grid.
-6. Validation of the reference hemispherical approximation against numerical quadrature.
-7. EFAST global sensitivity for PROPBR, including phase angle, and for sPROPBR.
-
-The default demo uses two synthetic leaves, 400–2500 nm at 10 nm intervals, float64, AdamW with 1,200 iterations and three starts, and EFAST with N=1,000 at 50 nm intervals. It writes NPZ results, JSON settings/metrics and PNG figures under `outputs/demo/`. These sampling choices make the demonstration convenient; they are not a substitute for the paper's full measured-data experiments.
-
-```bash
-# Full 1 nm simulation / inversion grid
-python run_pipeline.py --step 1 --global-step 10
-
-# NVIDIA GPU
-python run_pipeline.py --device cuda
-
-# Shorter demonstration; this checks execution, not optimization convergence
-python run_pipeline.py --iterations 200 --restarts 1 --skip-global
-
-# Analytical surface kernel in place of the frozen KAN
-python run_pipeline.py --kernel analytic
-```
-
-## Model API
-
-```python
-import torch
-from propbr import PROPBR, SPROPBR, invert, local_sensitivity, response_correlation
-
-# Parameter order: N, Cab, Car, Anth, Cw, Cm, Cbrown, sigma
-p = torch.tensor([[1.8, 48., 12., 3., .017, .009, .12, .28]], dtype=torch.float64)
-model = PROPBR(phase_angles=[15., 35., 55.], kernel="kan")
-brf = model.simulate(p)                    # (leaves, angles, wavelengths)
-fit = invert(model, brf.detach(), n_iters=1200, n_restarts=3)
-J = local_sensitivity(model, fit.parameters)
-coupling = response_correlation(J["physical"])
-
-# Parameter order: N, Cab, Car, Anth, Cw, Cm, Cbrown, mu
-smodel = SPROPBR()
-q = p.clone()
-q[:, 7] = 1.2
-sbrf = smodel.simulate(q)                   # (leaves, 1, wavelengths)
-```
-
-`simulate()` checks input bounds; `forward()` is the tensor-only entry point used inside automatic differentiation. Move the model with `.to("cuda")` and construct input tensors on the same device/dtype. Spectral constants and KAN weights follow the model.
-
-### Parameter definitions
-
-| Parameter | Meaning | Unit | Inversion range |
-|---|---|---|---|
-| N | Leaf structure parameter | dimensionless | 1–3.5 |
-| Cab | Chlorophyll a+b content | μg cm⁻² | 0–120 |
-| Car | Carotenoid content | μg cm⁻² | 0–30 |
-| Anth | Anthocyanin content | μg cm⁻² | 0–40 |
-| Cw | Equivalent water thickness (EWT) | cm | 0–0.06 |
-| Cm | Leaf mass per area (LMA) | g cm⁻² | 0–0.05 |
-| Cbrown | Brown pigment parameter | dimensionless | 0–1 |
-| σ | PROPBR surface roughness | dimensionless | 0.01–1 |
-| μ | sPROPBR effective surface reflection coefficient | dimensionless | 0–30 |
-
-Cw in cm equals water mass per area in g cm⁻² when water density is 1 g cm⁻³; multiplying Cw or Cm by 1,000 gives mg cm⁻². The paper's sPROPBR EFAST range is **mu=0–2.5**, distinct from its inversion range of 0–30.
-
-For calibration of the empirical fsurf–sigma relationship, use `PROPBR(kernel="analytic", free_fsurf=True)`: fsurf is appended as the ninth parameter with bounds 0.6–3.5. The default eight-parameter PROPBR instead sets fsurf=0.66 sigma⁻⁰·⁶³ and does not optimize it independently. Calibrating this empirical relationship from real retrievals requires external data.
-
-### Geometries
-
-The default model implements the paper's reduced phase-angle geometry. The phase angle is supplied in degrees. The KAN domain is 5–90° and sigma=0.01–1; model evaluation accepts **5≤phase<90°**. Use `kernel="analytic"` for phase angles below 5°. The paper's evaluated phase angles are mainly 0–65°.
-
-An analytical full-geometry surface term is also available:
-
-```python
-model = PROPBR(kernel="analytic", geometry=[[0., 15., 0.], [0., 35., 0.]])
-# Each row: incidence zenith, viewing zenith, relative azimuth, all in degrees.
-```
-
-The diffuse correction remains h=1, as in Eq.20. The full-geometry option changes only the surface term and does not establish validity under arbitrary oblique illumination. Angle conventions follow the paper's Eq.5; phase angle alone cannot represent arbitrary illumination–viewing geometry.
-
-### Supply your own data
-
-NPZ files are read with `allow_pickle=False`. See [examples/create_input.py](examples/create_input.py) for a synthetic schema example.
-
-| Workflow | Required NPZ arrays | Optional arrays |
+| 前向入口 | 模型 | 几何与输出 |
 |---|---|---|
-| simulate | `parameters` (B,P), `wavelengths` (L) | — |
-| invert | `brf` (B,L) or (B,A,L), `wavelengths` (L) | `initial` (P) or (B,P), `mask` (L), (B,L) or (B,A,L) |
-| sensitivity | `parameters` (B,P), `wavelengths` (L) | — |
+| `kan_torch` | 8参数PROPBR，fs由σ确定 | 相位角15°；`(B, 2101)` |
+| `kan_torch_lF` | 9参数PROPBR，fs自由 | 相位角35°；`(B, 2101)` |
+| `full_torch` | 9参数PROPBR，解析镜面核 | 相位角35°；`(B, 2101)` |
+| `full_torch_l` | 9参数PROPBR，解析镜面核 | 24个方向、12个相位角10–65°；450–1650 nm；展平为`(B, 24*1201)` |
+| `spropbr_torch` | 8参数sPROPBR，以μ替代σ | 不需要几何输入；`(B, 2101)` |
 
-Wavelengths must increase within 400–2500 nm. The model interpolates optical coefficients at the requested wavelengths. This is point sampling, not convolution with an instrument spectral response function. NaN/Inf observations and bands where `mask=False` are excluded; every leaf needs at least one valid observation.
+`Kf_torch` 保留为 `spropbr_torch` 的兼容别名。
 
-```bash
-python examples/create_input.py --output outputs/example_input
-python -m propbr simulate --input outputs/example_input/parameters.npz --phase 15,35,55
-python -m propbr invert --input outputs/example_input/observations.npz --phase 15,35,55
-python -m propbr sensitivity --input outputs/example_input/parameters.npz --phase 15,35,55
-python -m propbr sensitivity --input outputs/example_input/parameters.npz --kernel analytic --global-analysis --include-phase
+PROPBR 使用 `DHR − ρ_ref(σ) + Ks·F_Schlick`，其中
+`ρ_ref(σ) = F0(n_internal)·exp(−1.26σ^1.79)`，内部折射率取自PROSPECT光谱库，
+表面折射率取自 `lut/DLM_nr.npy`。按论文式（9），
+`F_Schlick = F0(n_surface) + (1−F0(n_surface))·(1−cos(phase/2))^5`。
+KAN输出的Ks已包含经验系数fs；自由fs版本通过 `Ks·(fs/f(sigma))` 调整幅度。
+
+sPROPBR 使用 `DHR − [1−tav(40°, n_internal)] + μ·F0(n_surface)`。
+零吸收附近的PROSPECT层叠采用无损极限的稳定展开，保留吸收参数的导数。
+
+```python
+import torch, func
+
+device = 'cuda' if torch.cuda.is_available() else 'cpu'
+p8 = torch.tensor([[1.5, 40.0, 10.0, 0.0, 0.01, 0.005, 0.0, 0.3]], device=device)
+brf = func.kan_torch(p8)          # (1, 2101)，PROPBR，15°
+
+# 纯 CPU 用法
+p8_cpu = p8.cpu()
+brf_cpu = func.kan_torch(p8_cpu)  # 或显式 func.kan_torch(p8_cpu, device='cpu')
+print(brf.shape, float(brf.mean()))
+
+p9 = torch.cat([p8, p8.new_tensor([[1.5]])], dim=1)
+brf9 = func.kan_torch_lF(p9)      # (1, 2101)，PROPBR（f_s 自由）
+
+q8 = p8.clone()
+q8[:, 7] = 1.2                   # 第8列为μ
+sbrf = func.spropbr_torch(q8)     # (1, 2101)，sPROPBR
 ```
 
-sPROPBR has one independent effective coefficient per observed spectrum. To invert multi-angle data with sPROPBR as in the paper, reshape `(leaves, angles, bands)` to `(leaves*angles, bands)`; joint biochemical sharing is the PROPBR design.
+参数物理范围（与论文一致）：
 
-## Validate and retrain the surrogate
+| 参数 | N | Cab | Car | Anth | Cw | Cm | Cbrown | σ | f_s |
+|---|---|---|---|---|---|---|---|---|---|
+| 下界 | 1.0 | 0 | 0 | 0 | 0 | 0 | 0 | 0.01 | 0.6 |
+| 上界 | 3.5 | 120 | 30 | 40 | 0.06 | 0.05 | 1.0 | 1.0 | 3.5 |
 
-```bash
-python -m propbr validate --output outputs/validation
-python -m propbr train-kan --epochs 105000 --device cuda --output outputs/training/ks_kan.pt
+sPROPBR前7个参数的范围相同，μ的反演范围为0–30。
+
+### 2) 反演参数
+
+`func.invert_mse` 用 sigmoid 有界重参数化 + 反向自动微分，批量反演：
+
+```python
+import numpy as np, torch, func
+
+low  = torch.tensor([1., 0, 0, 0, 0, 0, 0, 0.01], device=device)
+high = torch.tensor([3.5, 120, 30, 40, 0.06, 0.05, 1., 1.], device=device)
+
+obs = brf.detach()                # 可直接运行的合成示例；实测BRF同样使用(B, 2101)
+p0  = np.array([0.2, 0.33, 0.33, 0.0, 0.17, 0.1, 0.0, 0.3])   # 归一化初值
+
+paras = func.invert_mse(obs=obs, p0_norm=p0, low=low, high=high,
+                        n_iters=500, lr=0.05, batch_size=1000,
+                        optimizer='adam', device=device)
+# paras: (B, 8)，物理参数
+# CPU：把 low/high/obs 建在 CPU 上，并传 device='cpu'，其余不变
 ```
 
-Training regenerates the analytical LUT rather than reading a dataset. It uses the documented 2→4→1 network, cubic B-splines, grid size 10, standardized inputs and log1p(Ks) targets. A short training run verifies the training path but will not reproduce the supplied weight's accuracy. Load a fresh checkpoint through `PROPBR(weights_path="outputs/training/ks_kan.pt")`; the bundled checkpoint is preserved.
+- 上例显式使用Adam、500步、学习率0.05，默认余弦退火到0.0025；函数默认值仍为
+  AdamW、400步和学习率0.02。AdamW采用PyTorch默认权重衰减0.01，Adam的权重衰减为0。
+- 对sPROPBR反演时，传入`forward_model=func.spropbr_torch`，将最后一项的边界改为0和30。
+  对多角度联合反演，传入`forward_model=func.full_torch_l`及对应9参数边界；同一叶片的24个方向
+  按10–65°两组顺序展平为一行。每个样本保留所有迭代与最后一步更新中的最低MSE解。
+- 备选反演器：`trf_solver.batch_trf`（GPU 批量 dogleg 信赖域，逐样本更快收敛，但性状精度
+  在多角度联合反演中低于 Adam，见论文）。
 
-## Tests
+---
 
-```bash
-python -m pip install -e ".[full,dev]"
-python -m pytest -q
-```
+## 运行时对比（2,244 条果园光谱 × 2,101 波段）
 
-Tests check PROSPECT-D against independent NumPy PROSAIL, exponential-integral values and derivatives against SciPy, analytical surface equations, physical/latent Jacobians against finite differences and direct AD, missing-band inversion, EFAST sampling counts, and CPU/CUDA agreement when CUDA is available. GitHub Actions runs CPU tests on Windows and Linux.
+下表为论文记录的实验结果。本文档修正后的实现使用Schlick项及新的最优解保存逻辑，
+相应实测性状指标和运行时间需要使用原始数据、实验配置重新测定。
 
-Actual local verification outcomes are recorded in [docs/verification.md](docs/verification.md).
+协议：9 参数 PROPBR（参考镜面按 `F0(n)·exp(−1.26σ^1.79)` 扣除，35°）；Adam 500 迭代、
+batch 1000；`curve_fit` 为 scipy TRF，前向使用仓库内 numpy 版 PROSPECT。单位：Cab/Car 为
+μg/cm²，EWT/LMA 为 mg/cm²。
 
-## Scientific scope and licensing
+| 方案 | 时间 | 每谱 | 池化 RMSE | 中位 RMSE | Cab | Car | EWT | LMA |
+|---|---|---|---|---|---|---|---|---|
+| **GPU-Adam**（RTX 4070） | **27.6 s** | **12.3 ms** | 0.00449 | 0.00386 | **13.52** | 5.31 | **1.86** | 3.09 |
+| CPU-Adam（20 核） | 322.3 s | 143.6 ms | 0.00449 | 0.00386 | **13.52** | 5.31 | **1.86** | 3.09 |
+| curve_fit 单核 | 823.9 s | 367.1 ms | **0.00396** | **0.00327** | 13.89 | **4.60** | 1.90 | **2.74** |
+| curve_fit 20 核 | 191.3 s | 85.2 ms | **0.00396** | **0.00327** | 13.89 | **4.60** | 1.90 | **2.74** |
 
-The public implementation follows the manuscript equations. It corrects repeated fsurf multiplication, restores angular Schlick Fresnel reflectance, and uses the roughness-dependent reference subtraction in PROPBR; these differ from some historical scripts. **Previously reported measured-data metrics and speedups must be evaluated again with the selected implementation and the external datasets.** No measured-data metrics are inferred from the synthetic examples.
+要点：GPU 批量反演相对 CPU 同算法快 11.7×、相对单核 scipy TRF 快 29.9×；TRF 在单角度
+数据上谱拟合略好，Adam 在 Cab/EWT 上更好——两条路线的差异在 2–13%，属求解器落点差异。
 
-Code and the adapted PROSPECT implementation are distributed under GPLv3; the vendored efficient-kan implementation retains its MIT notice. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). Asset hashes and provenance are recorded in `src/propbr/assets/manifest.json`.
+---
 
-The manuscript has no public DOI recorded in this package. Use `CITATION.cff` for this software, and cite the published PROSPECT-D and KAN methods when appropriate. NLSQ/JAXFit are references for the manuscript's GPU least-squares comparator; this package's inversion uses PyTorch AdamW and does not depend on those solvers.
+## 数据说明
+
+本仓库**不含数据**。论文使用的数据集：
+
+- **#LOTUS**（多角度 BRF，255 叶 × 24 方向）：Federated Research Data Repository，
+  Peters & Noble (2022, 2024)；
+- **#Global / #Orchard**（固定角度叶片 BRF）：汇编自公开数据库（EcoSIS 等），见论文引用；
+- **#Apple / #Grape**（近端 HSI）：作者实测 / Data INRAE 公开数据。
+
+使用时可把光谱存为 `(N, 2101)` 的 float32 数组（400–2500 nm，1 nm），直接送入
+`func.invert_mse`；真值性状单位与论文一致即可。
+
+---
+
+## 引用与许可
+
+代码沿用本仓库的GPL-3.0许可，全文见[LICENSE](LICENSE)。efficient-kan的MIT许可及其他来源说明见[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。数据遵循各原始数据集许可。软件引用信息见[CITATION.cff](CITATION.cff)。

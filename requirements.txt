@@ -1,1 +1,11 @@
--e .[full]
+# Core model, regression checks and experiment utilities.
+# Install a platform-appropriate PyTorch build first when using CUDA.
+numpy>=1.24
+scipy>=1.11
+torch>=2.1
+scikit-learn>=1.4
+pandas>=1.5
+matplotlib>=3.7
+tqdm
+openpyxl
+# Optional: prosail (bundled optical coefficients are used when absent).

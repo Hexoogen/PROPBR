@@ -1,0 +1,73 @@
+{
+  "description": "Author-supplied lookup arrays and pretrained weights; exact release bytes.",
+  "files": {
+    "brf_spec.npy": {
+      "bytes": 72128,
+      "sha256": "2624509919e871bc78f856a932f4e3b88d74f35087984ef34f42af3ae164d50f"
+    },
+    "brf_spec1.npy": {
+      "bytes": 364128,
+      "sha256": "17a2ad73164c04413d6a3e3f303034aff4dd0c983b7d4acc9481c0809c5120e2"
+    },
+    "brf_spec2.npy": {
+      "bytes": 72928,
+      "sha256": "675a7823fa500123bffdb7eab2c45a005326e71e9b8ffb32f1479fb07ad51085"
+    },
+    "dhr0_spec.npy": {
+      "bytes": 72128,
+      "sha256": "7d0057f6c1d31faa0468f7f77d83a53077508f4055a666e13ae6d73979170005"
+    },
+    "dhr0_spec_4025.npy": {
+      "bytes": 168208,
+      "sha256": "c0b95b3e5b45973f8014c17c83448660b2ea79a17dc6fedd64d11f86207fec31"
+    },
+    "dhr_spec_1.375n.npy": {
+      "bytes": 72128,
+      "sha256": "f4c57556d8b47664de75a1426c566ad6d760ac13639b2a2f38930c17fe26cce6"
+    },
+    "dhr_spec_1.5n.npy": {
+      "bytes": 72128,
+      "sha256": "e5fa7b67d1d326a0ddad06b2e2946c96953a5c7e6137df8de85c68ca7af76367"
+    },
+    "DLM_nr.npy": {
+      "bytes": 16936,
+      "sha256": "6a996881b5cc1f8e3b1fc47cf4aece1d3ec63b3871f4a0720544ace2fe7148c3"
+    },
+    "DLM_nr_196.npy": {
+      "bytes": 1696,
+      "sha256": "60505989614ed83586bf6f6b45d3db54b15ba139917ef78e14a7016b91f3ef00"
+    },
+    "h.npy": {
+      "bytes": 72128,
+      "sha256": "90381c3ec2b5a7e084fc2ac63e3735635ec8fce042d47d212ee30dd2b4d0b5fb"
+    },
+    "h_1.375n.npy": {
+      "bytes": 72128,
+      "sha256": "21b27db50d51832c104c906de0d0bc5a2d4d860f3d93dbe3231e7850651eb8f3"
+    },
+    "ks_kan_weights.pt": {
+      "bytes": 4756,
+      "sha256": "e5d138dc207c8ab6f7b9465395b5af06d06db7e68ea3c81956486285e13545fe"
+    },
+    "ks_kan_weights1.pt": {
+      "bytes": 4768,
+      "sha256": "3c7c788a3c423663cad1499500838f1a62173413f3b6fe40bb8be5c1d50fcb8b"
+    },
+    "lib_dr.npy": {
+      "bytes": 6568,
+      "sha256": "7ef6bcb29d397c63accdfbb07fe6cb6cb11012c3ca8bc3e02748f33d8b6234a2"
+    },
+    "pd_196.npy": {
+      "bytes": 12672,
+      "sha256": "81ec791eae9fd3343a3ca7cc43621253a059445443f6a7a0793eef0a1c21cad4"
+    },
+    "Resampler.npy": {
+      "bytes": 3294496,
+      "sha256": "46db5e68d67b0c81766336e6e24b9b5b2769647b7244f9ce82dcd0e51c9e792e"
+    },
+    "spec_lut.npy": {
+      "bytes": 72128,
+      "sha256": "c7516cf5ae18e4d4eb6cdd76e76c69117f268a7678314a2db23e3485489739df"
+    }
+  }
+}

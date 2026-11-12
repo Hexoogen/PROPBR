@@ -5,6 +5,7 @@ title: "PROPBR and sPROPBR differentiable leaf reflectance models"
 authors:
   - family-names: Liu
     given-names: Yanfu
-version: 0.1.0
-date-released: 2026-10-01
+version: 0.2.0
+date-released: 2026-11-12
 license: GPL-3.0-only
+repository-code: "https://github.com/Hexoogen/PROPBR"

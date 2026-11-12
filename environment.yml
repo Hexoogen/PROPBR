@@ -1,0 +1,23 @@
+# PROPBR 复现环境
+# 用法：conda env create -f environment.yml && conda activate propbr
+# GPU 反演需 CUDA 版 torch，见 README「环境安装」一节。
+name: propbr
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.10
+  - pip
+  - numpy>=1.24
+  - scipy>=1.11
+  - scikit-learn>=1.4
+  - pandas>=1.5
+  - matplotlib>=3.7
+  - tqdm
+  - openpyxl
+  - pip:
+      # 可选：官方 prosail 谱库；不装则自动回退到仓库内的 prosailt 副本
+      - prosail
+      # 默认安装 CPU 版 torch；GPU 请改装 CUDA 版，例如：
+      #   pip install torch --index-url https://download.pytorch.org/whl/cu121
+      - torch>=2.1

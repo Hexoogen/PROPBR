@@ -1,0 +1,188 @@
+
+import numpy as np
+from scipy.special import expi
+try:
+    from prosail import spectral_lib
+except ImportError:
+    from prosailt import spectral_lib as _bundled_spectra
+    # This module is NumPy/SciPy code; keep fallback constants as NumPy arrays.
+    spectral_lib = type(_bundled_spectra)(*(
+        type(group)(*(array.detach().cpu().numpy().astype(np.float64, copy=False)
+                      for array in group))
+        for group in _bundled_spectra))
+
+
+def calctav(alpha, nr):
+    # ***********************************************************************
+    # calctav
+    # ***********************************************************************
+    # Stern F. (1964), Transmission of isotropic radiation across an
+    # interface between two dielectrics, Appl. Opt., 3(1):111-113.
+    # Allen W.A. (1973), Transmission of isotropic light across a
+    # dielectric surface in two and three dimensions, J. Opt. Soc. Am.,
+    # 63(6):664-666.
+    # ***********************************************************************
+
+    # rd  = pi/180 np.deg2rad
+    n2 = nr * nr
+    npx = n2 + 1
+    nm = n2 - 1
+    a = (nr + 1) * (nr + 1) / 2.
+    k = -(n2 - 1) * (n2 - 1) / 4.
+    sa = np.sin(np.deg2rad(alpha))
+
+    if alpha != 90:
+        b1 = np.sqrt((sa * sa - npx / 2) * (sa * sa - npx / 2) + k)
+    else:
+        b1 = 0.
+    b2 = sa * sa - npx / 2
+    b = b1 - b2
+    b3 = b ** 3
+    a3 = a ** 3
+    ts = (k ** 2 / (6 * b3) + k / b - b / 2) - (k ** 2. / (6 * a3) + k / a - a / 2)
+
+    tp1 = -2 * n2 * (b - a) / (npx ** 2)
+    tp2 = -2 * n2 * npx * np.log(b / a) / (nm ** 2)
+    tp3 = n2 * (1 / b - 1 / a) / 2
+    tp4 = 16 * n2 ** 2 * (n2 ** 2 + 1) * np.log((2 * npx * b - nm ** 2) / (2 * npx * a - nm ** 2)) / (
+                npx ** 3 * nm ** 2)
+    tp5 = 16 * n2 ** 3 * (1. / (2 * npx * b - nm ** 2) - 1 / (2 * npx * a - nm ** 2)) / (npx ** 3)
+    tp = tp1 + tp2 + tp3 + tp4 + tp5
+    tav = (ts + tp) / (2 * sa ** 2)
+
+    return tav
+def refl_trans_one_layer(alpha, nr, tau):
+    # ***********************************************************************
+    # reflectance and transmittance of one layer
+    # ***********************************************************************
+    # Allen W.A., Gausman H.W., Richardson A.J., Thomas J.R. (1969),
+    # Interaction of isotropic ligth with a compact plant leaf, J. Opt.
+    # Soc. Am., 59(10):1376-1379.
+    # ***********************************************************************
+    # reflectivity and transmissivity at the interface
+    # -------------------------------------------------
+    talf = calctav(alpha, nr)
+    ralf = 1.0 - talf
+    t12 = calctav(90, nr)
+    r12 = 1. - t12
+    t21 = t12 / (nr * nr)
+    r21 = 1 - t21
+
+    # top surface side
+    denom = 1. - r21 * r21 * tau * tau
+    Ta = talf * tau * t21 / denom
+    Ra = ralf + r21 * tau * Ta
+
+    # bottom surface side
+    t = t12 * tau * t21 / denom
+    r = r12 + r21 * tau * t
+
+    return r, t, Ra, Ta, denom,ralf
+
+def prospect_pro(N, cab, car, ant, cw, cm, cbrown, prot, cbc):
+    nr = spectral_lib.prospectpro.nr
+    kab = spectral_lib.prospectpro.kab
+    kcar = spectral_lib.prospectpro.kcar
+    kbrown = spectral_lib.prospectpro.kbrown
+    kw = spectral_lib.prospectpro.kw
+    km = spectral_lib.prospectpro.km
+    kant = spectral_lib.prospectpro.kant
+    kprot = spectral_lib.prospectpro.kprot
+    kcbc = spectral_lib.prospectpro.kcbc
+    alpha = 40.
+
+    kall = (cab * kab + car * kcar + ant * kant + cbrown * kbrown + cw * kw + cm * km + prot * kprot + cbc * kcbc) / N
+    j = kall > 0
+    t1 = (1 - kall) * np.exp(-kall)
+    t2 = kall ** 2 * (-expi(-kall))
+    tau = np.ones_like(t1)
+    tau[j] = t1[j] + t2[j]
+
+    r, t, Ra, Ta, denom, ralf = refl_trans_one_layer(alpha, nr, tau)
+
+    # ***********************************************************************
+    # reflectance and transmittance of N layers
+    # Stokes equations to compute properties of next N-1 layers (N real)
+    # Normal case
+    # ***********************************************************************
+    # Stokes G.G. (1862), On the intensity of the light reflected from
+    # or transmitted through a pile of plates, Proc. Roy. Soc. Lond.,
+    # 11:545-556.
+    # ***********************************************************************
+    D = np.sqrt((1 + r + t) * (1 + r - t) * (1. - r + t) * (1. - r - t))
+    rq = r * r
+    tq = t * t
+    a = (1 + rq - tq + D) / (2 * r)
+    b = (1 - rq + tq + D) / (2 * t)
+
+    bNm1 = np.power(b, N - 1)
+    bN2 = bNm1 * bNm1
+    a2 = a * a
+    denom = a2 * bN2 - 1
+    Rsub = a * (bN2 - 1) / denom
+    Tsub = bNm1 * (a2 - 1) / denom
+
+    # Case of zero absorption
+    j = r + t >= 1.
+    Tsub[j] = t[j] / (t[j] + (1 - t[j]) * (N - 1))
+    Rsub[j] = 1 - Tsub[j]
+
+    # Reflectance and transmittance of the leaf: combine top layer with next N-1 layers
+    denom = 1 - Rsub * r
+    # tran = Ta * Tsub / denom
+    dhr = Ra + Ta * Rsub * t / denom
+    dhr_diff=dhr-ralf
+    return dhr,dhr_diff
+
+def prospect_d(N, cab, car, ant, cw, cm,cb):
+    nr = spectral_lib.prospectd.nr
+    kab = spectral_lib.prospectd.kab
+    kcar = spectral_lib.prospectd.kcar
+    kbrown = spectral_lib.prospectd.kbrown
+    kw = spectral_lib.prospectd.kw
+    km = spectral_lib.prospectd.km
+    kant = spectral_lib.prospectd.kant
+    alpha = 40.
+
+    kall = (cab * kab + car * kcar + ant * kant + cb * kbrown + cw * kw + cm * km) / N
+    j = kall > 0
+    t1 = (1 - kall) * np.exp(-kall)
+    t2 = kall ** 2 * (-expi(-kall))
+    tau = np.ones_like(t1)
+    tau[j] = t1[j] + t2[j]
+
+    r, t, Ra, Ta, denom, ralf = refl_trans_one_layer(alpha, nr, tau)
+
+    # ***********************************************************************
+    # reflectance and transmittance of N layers
+    # Stokes equations to compute properties of next N-1 layers (N real)
+    # Normal case
+    # ***********************************************************************
+    # Stokes G.G. (1862), On the intensity of the light reflected from
+    # or transmitted through a pile of plates, Proc. Roy. Soc. Lond.,
+    # 11:545-556.
+    # ***********************************************************************
+    D = np.sqrt((1 + r + t) * (1 + r - t) * (1. - r + t) * (1. - r - t))
+    rq = r * r
+    tq = t * t
+    a = (1 + rq - tq + D) / (2 * r)
+    b = (1 - rq + tq + D) / (2 * t)
+
+    bNm1 = np.power(b, N - 1)
+    bN2 = bNm1 * bNm1
+    a2 = a * a
+    denom = a2 * bN2 - 1
+    Rsub = a * (bN2 - 1) / denom
+    Tsub = bNm1 * (a2 - 1) / denom
+
+    # Case of zero absorption
+    j = r + t >= 1.
+    Tsub[j] = t[j] / (t[j] + (1 - t[j]) * (N - 1))
+    Rsub[j] = 1 - Tsub[j]
+
+    # Reflectance and transmittance of the leaf: combine top layer with next N-1 layers
+    denom = 1 - Rsub * r
+    # tran = Ta * Tsub / denom
+    dhr = Ra + Ta * Rsub * t / denom
+    dhr_diff=dhr-ralf
+    return dhr,dhr_diff
