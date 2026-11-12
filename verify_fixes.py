@@ -226,13 +226,44 @@ def learning_rate_and_objective(device):
                 gradient_mode_parameter_difference=float(np.abs(results[0] - results[1]).max()))
 
 
+def eight_parameter_propbr(device):
+    x = torch.tensor(P8, device=device)
+    results = {}
+    for forward, bands in [(func.propbr_35_torch, 2101), (func.propbr_24_torch, 24 * 1201)]:
+        value = forward(x.unsqueeze(0))
+        assert value.shape == (1, bands) and torch.isfinite(value).all()
+        indices = [100, 500, 1000, 1600] if bands == 2101 else [100, 4000, 14000, 28000]
+        def selected(p):
+            return forward(p.unsqueeze(0))[0, indices]
+        jf = torch.func.jacfwd(selected)(x)
+        jr = torch.autograd.functional.jacobian(selected, x)
+        torch.testing.assert_close(jf, jr, atol=1e-5, rtol=1e-4)
+        step = torch.zeros_like(x); step[7] = 1e-4
+        finite_difference = (selected(x + step) - selected(x - step)) / 2e-4
+        relative_error = ((finite_difference - jr[:, 7]).norm() /
+                          jr[:, 7].norm().clamp_min(1e-10)).item()
+        assert relative_error < .01
+        try:
+            forward(torch.cat([x, x.new_tensor([1.])]).unsqueeze(0))
+        except ValueError:
+            pass
+        else:
+            raise AssertionError('The public PROPBR entry point must take exactly 8 parameters')
+        results[forward.__name__] = dict(shape=list(value.shape), sigma_derivative_relative_error=relative_error)
+    # The 35-degree direction uses the same sigma-dependent law in both paths.
+    q = x.unsqueeze(0)
+    analytic = func.propbr_24_torch(q).reshape(1, 24, 1201)[:, 5]
+    surrogate = func.propbr_35_torch(q)[:, 50:1251]
+    assert (analytic - surrogate).abs().max() < .003
+    return results
+
+
 def synthetic_inversion(device):
     p = torch.tensor([P8], device=device)
-    configs = [(func.kan_torch, p, LOW, HIGH),
+    configs = [(func.propbr_35_torch, p, LOW, HIGH),
                (func.spropbr_torch, torch.cat([p[:, :7], p.new_tensor([[1.2]])], dim=1),
                 np.r_[LOW[:7], 0.], np.r_[HIGH[:7], 30.]),
-               (func.full_torch_l, torch.cat([p, p.new_tensor([[.9]])], dim=1),
-                np.r_[LOW, .6], np.r_[HIGH, 3.5])]
+               (func.propbr_24_torch, p, LOW, HIGH)]
     out = {}
     for forward, truth, lo, hi in configs:
         initial = ((truth[0].cpu().numpy() - lo) / (hi - lo)) * .9 + .01
@@ -254,6 +285,7 @@ tests = [('E1 values and derivatives', integral), ('Stokes stacking identities',
          ('parameter boundary gradients', bounds), ('multi-angle Schlick expression', surface),
          ('PROPBR/sPROPBR interfaces', model_interfaces), ('best iterate and final step', best_iterate),
          ('cosine schedule and MSE gradient normalization', learning_rate_and_objective),
+         ('8-parameter PROPBR interfaces and sigma derivatives', eight_parameter_propbr),
          ('synthetic model inversions', synthetic_inversion)]
 for device in devices:
     func.warmup(device)

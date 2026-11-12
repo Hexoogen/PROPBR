@@ -408,6 +408,35 @@ def full_torch_l(params, device=None):
     return pbrf
 
 
+def propbr_35_torch(params, device=None):
+    """Eight-parameter PROPBR at 35 degrees.
+
+    Columns are N, Cab, Car, Anth, Cw, Cm, Cbrown, sigma. The trained
+    directional kernel includes the factor 0.66 * sigma**(-0.63).
+    Returns (B, 2101) for 400-2500 nm at 1 nm spacing.
+    """
+    if params.ndim != 2 or params.shape[1] != 8:
+        raise ValueError('PROPBR expects shape (B, 8): N, Cab, Car, Anth, Cw, Cm, Cbrown, sigma')
+    nr, _, kernel, _ = _ensure(device if device is not None else params.device)
+    sigma = params[:, 7:8]
+    phase = torch.full_like(sigma, np.deg2rad(35))
+    return (_prospect_terms(params) - _reference_specular(sigma) +
+            kernel(phase, sigma) * _schlick(nr, phase))
+
+
+def propbr_24_torch(params, device=None):
+    """Eight-parameter PROPBR for 24 directions at 10-65 degrees.
+
+    The directional amplitude is determined by 0.66 * sigma**(-0.63).
+    Returns (B, 24 * 1201), with 450-1650 nm for each direction.
+    """
+    if params.ndim != 2 or params.shape[1] != 8:
+        raise ValueError('PROPBR expects shape (B, 8): N, Cab, Car, Anth, Cw, Cm, Cbrown, sigma')
+    sigma = params[:, 7:8]
+    coupled = torch.cat((params, 0.66 * sigma.pow(-0.63)), dim=1)
+    return full_torch_l(coupled, device=device)
+
+
 def spropbr_torch(params, device=None):
     """sPROPBR with [N, Cab, Car, Anth, Cw, Cm, Cbrown, mu].
 
