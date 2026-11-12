@@ -13,7 +13,7 @@ PROPBR uses 8 parameters:
 [N, Cab, Car, Anth, Cw, Cm, Cbrown, σ]
 ```
 
-Two observation configurations are provided: a fixed phase angle of **35°** and
+Two observation configurations are provided: a fixed phase angle and
 joint simulation of **24 directions**. The simplified model, **sPROPBR**, replaces
 σ with an effective surface reflection coefficient μ for observations without
 complete geometric information, such as proximal hyperspectral imaging.
@@ -35,8 +35,6 @@ complete geometric information, such as proximal hyperspectral imaging.
     ├── ks_kan_weights1.pt   # Trained directional-kernel weights
     └── DLM_nr.npy           # Surface refractive-index spectrum
 ```
-
-Measured datasets are distributed separately; see [Data](#data).
 
 ## Installation
 
@@ -60,45 +58,6 @@ The repository includes the spectral coefficients required by the models.
 The module selects CUDA when available and otherwise uses the CPU. Set
 `PROPBR_DEVICE=cpu` to select the CPU explicitly. Model assets are located
 relative to the module, so imports do not depend on the current working directory.
-
-## Model formulation
-
-PROPBR removes a hemispherical surface reference from PROSPECT reflectance
-before adding the directional surface contribution:
-
-$$
-R_{\mathrm{PROPBR}} = R_{\mathrm{PROSPECT}}
-- F_0(n_{\mathrm{internal}})\exp(-1.26\sigma^{1.79})
-+ K_s(\sigma,\theta)F(\theta,n_{\mathrm{surface}}).
-$$
-
-The directional kernel is
-
-$$
-K_s(\sigma,\theta) =
-\frac{\pi\,(0.66\sigma^{-0.63})\,D(\sigma,\theta/2)\,G(\sigma,\theta)}
-{4\cos\theta},
-$$
-
-where D and G are the Smith–GGX distribution and shadowing–masking terms.
-The KAN surrogate predicts this complete kernel, including its σ-dependent
-amplitude. The Schlick Fresnel term is
-
-$$
-F(\theta,n) = F_0(n) + [1-F_0(n)]\,[1-\cos(\theta/2)]^5,
-\qquad F_0(n)=\left(\frac{1-n}{1+n}\right)^2.
-$$
-
-The internal refractive-index spectrum comes from PROSPECT, and the surface
-spectrum is stored in `lut/DLM_nr.npy`.
-
-sPROPBR uses
-
-$$
-R_{\mathrm{sPROPBR}} = R_{\mathrm{PROSPECT}}
-- [1-\operatorname{tav}(40^\circ,n_{\mathrm{internal}})]
-+ \mu F_0(n_{\mathrm{surface}}).
-$$
 
 ## Forward simulation
 
@@ -185,21 +144,6 @@ reference calculations, forward- and reverse-mode derivatives, zero-absorption
 limits, parameter bounds, the 8-parameter interfaces, and synthetic inversions.
 Before applying `torch.func.jacfwd` or `vmap` directly to a forward function,
 call `func.warmup(device)`; `invert_mse` performs this warm-up internally.
-
-## Data
-
-Measured datasets are not included. The manuscript uses:
-
-- **#LOTUS**: multi-angle BRFs from 255 leaves measured in 24 directions;
-  Federated Research Data Repository, Peters and Noble (2022, 2024).
-- **#Global / #Orchard**: fixed-angle leaf BRFs compiled from public databases,
-  including EcoSIS; see the manuscript references.
-- **#Apple / #Grape**: proximal HSI acquired by the authors or obtained from
-  the public Data INRAE repository.
-
-Use float32 BRF arrays with shape `(B, 2101)` for the 35° configuration and
-`(B, 24*1201)` for joint multi-angle inversion. Use the trait units specified
-in the manuscript for ground-truth comparisons.
 
 ## Citation and license
 
